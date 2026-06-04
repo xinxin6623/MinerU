@@ -1,0 +1,47 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  MinerU Gradio Web UI LaunchDaemon。
+  脚本内会 curl 等 mineru-api 就绪再启动，避免 KeepAlive 早死反复重启。
+  日志：/var/log/mineru-gradio.{out,err}.log
+-->
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>xyz.alphaxbot.mineru-gradio</string>
+
+  <key>ProgramArguments</key>
+  <array>
+    <string>/Users/macmini/Documents/minerU/scripts/local/mineru-gradio.sh</string>
+  </array>
+
+  <key>RunAtLoad</key>
+  <true/>
+  <key>KeepAlive</key>
+  <true/>
+
+  <key>UserName</key>
+  <string>macmini</string>
+  <key>GroupName</key>
+  <string>staff</string>
+
+  <key>WorkingDirectory</key>
+  <string>/Users/macmini/Documents/minerU</string>
+
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>HOME</key>
+    <string>/Users/macmini</string>
+    <key>PATH</key>
+    <string>/Users/macmini/.local/bin:/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+  </dict>
+
+  <key>StandardOutPath</key>
+  <string>/var/log/mineru-gradio.out.log</string>
+  <key>StandardErrorPath</key>
+  <string>/var/log/mineru-gradio.err.log</string>
+
+  <key>ThrottleInterval</key>
+  <integer>5</integer>
+</dict>
+</plist>

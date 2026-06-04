@@ -1,0 +1,50 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  MinerU FastAPI 服务 LaunchDaemon。
+  系统启动即跑，无需用户登录。崩了自愈。
+  安装位置：/Library/LaunchDaemons/xyz.alphaxbot.mineru-api.plist
+  装载：sudo launchctl bootstrap system /Library/LaunchDaemons/xyz.alphaxbot.mineru-api.plist
+  日志：/var/log/mineru-api.{out,err}.log
+-->
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>xyz.alphaxbot.mineru-api</string>
+
+  <key>ProgramArguments</key>
+  <array>
+    <string>/Users/macmini/Documents/minerU/scripts/local/mineru-api.sh</string>
+  </array>
+
+  <key>RunAtLoad</key>
+  <true/>
+  <key>KeepAlive</key>
+  <true/>
+
+  <key>UserName</key>
+  <string>macmini</string>
+  <key>GroupName</key>
+  <string>staff</string>
+
+  <key>WorkingDirectory</key>
+  <string>/Users/macmini/Documents/minerU</string>
+
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>HOME</key>
+    <string>/Users/macmini</string>
+    <key>PATH</key>
+    <string>/Users/macmini/.local/bin:/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+  </dict>
+
+  <key>StandardOutPath</key>
+  <string>/var/log/mineru-api.out.log</string>
+  <key>StandardErrorPath</key>
+  <string>/var/log/mineru-api.err.log</string>
+
+  <!-- 崩溃后 5 秒再重启，避免疯狂打转 -->
+  <key>ThrottleInterval</key>
+  <integer>5</integer>
+</dict>
+</plist>

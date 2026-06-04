@@ -1,0 +1,69 @@
+# Traefik 动态路由：mineru-ui / mineru-api 子域 → 经桥接容器 → Mac mini 反向隧道
+# 部署位置：/etc/dokploy/traefik/dynamic/mineru.yml
+# 依赖：
+#   1. *.alphaxbot.xyz DNS 已解析到本机公网 IP
+#   2. mineru-bridge-stack.yml 已 deploy（mineru_bridge-ui / mineru_bridge-api service 存活）
+#   3. mineru-middlewares.yml 已被 gen-basic-auth.sh 写入真实哈希
+#   4. Mac 端 reverse-tunnel.sh 跑着（服务器 127.0.0.1:7860/7861 可 curl 200）
+#
+# Traefik 自动 reload，无需重启。
+#
+# 路由设计：
+#   - 80 端口 (web)        → 强制 301 跳 HTTPS
+#   - 443 端口 (websecure) → 挂 ratelimit + auth → 转发到桥接服务
+#   - 证书走 letsencrypt resolver（Dokploy 已配）
+
+http:
+  routers:
+    # ---------- Gradio UI ----------
+    mineru-ui-web:
+      rule: Host(`mineru-ui.alphaxbot.xyz`)
+      service: mineru-ui-service
+      entryPoints:
+        - web
+      middlewares:
+        - redirect-to-https
+
+    mineru-ui-secure:
+      rule: Host(`mineru-ui.alphaxbot.xyz`)
+      service: mineru-ui-service
+      entryPoints:
+        - websecure
+      tls:
+        certResolver: letsencrypt
+      middlewares:
+        - mineru-ratelimit
+        - mineru-auth
+
+    # ---------- FastAPI ----------
+    mineru-api-web:
+      rule: Host(`mineru-api.alphaxbot.xyz`)
+      service: mineru-api-service
+      entryPoints:
+        - web
+      middlewares:
+        - redirect-to-https
+
+    mineru-api-secure:
+      rule: Host(`mineru-api.alphaxbot.xyz`)
+      service: mineru-api-service
+      entryPoints:
+        - websecure
+      tls:
+        certResolver: letsencrypt
+      middlewares:
+        - mineru-ratelimit
+        - mineru-auth
+
+  services:
+    mineru-ui-service:
+      loadBalancer:
+        servers:
+          - url: http://mineru_bridge-ui:7860
+        passHostHeader: true
+
+    mineru-api-service:
+      loadBalancer:
+        servers:
+          - url: http://mineru_bridge-api:7861
+        passHostHeader: true

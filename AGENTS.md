@@ -116,10 +116,114 @@ sudo /usr/libexec/ApplicationFirewall/socketfilterfw --unblockapp /Users/macmini
 
 > 注意：放行清单按**二进制绝对路径**记，重建 venv 或迁移仓库目录后需要重做。
 
-### 当前持久化状态
+### 持久化（LaunchDaemon + TCC 必备，2026-06-04 起）
 
-- ⚠️ 三个服务（api / gradio / tunnel）当前都是**前台 nohup 跑的**，关 Mac / 当前 shell 会丢
-- 未做 launchd plist。要做按 docling 已有 plist 模板改改路径即可
+三个服务现在由 **system-level LaunchDaemon** 拉起（开机自动跑、不依赖用户登录、崩了自愈）。plist 在 `scripts/local/launchd/`，安装/卸载脚本同目录。
+
+| Label | plist | 日志（root 写、macmini 可读） |
+|---|---|---|
+| `xyz.alphaxbot.mineru-api` | `xyz.alphaxbot.mineru-api.plist` | `/var/log/mineru-api.{out,err}.log` |
+| `xyz.alphaxbot.mineru-gradio` | `xyz.alphaxbot.mineru-gradio.plist` | `/var/log/mineru-gradio.{out,err}.log` |
+| `xyz.alphaxbot.mineru-tunnel` | `xyz.alphaxbot.mineru-tunnel.plist` | `/var/log/mineru-tunnel.{out,err}.log` |
+
+**安装**：`sudo bash scripts/local/launchd/install.sh`（脚本会杀当前 nohup → cp plist → 创建日志文件 → bootstrap）
+**卸载**：`sudo bash scripts/local/launchd/uninstall.sh`
+**手动重启某个**：`sudo launchctl kickstart -k system/xyz.alphaxbot.mineru-api`（也可用 osascript with admin privileges 触发 GUI 密码框，避免终端 sudo）
+
+#### TCC 完全磁盘访问（FDA）必加（**严重坑**）
+
+LaunchDaemon 由系统 launchd（root）启动，子进程**没有用户登录会话的 TCC 上下文**，访问 `~/Documents/`、`~/Desktop/`、`~/Downloads/` 等受保护目录会被 **deny**（POSIX 报 `Operation not permitted` 或 `can't open input file`），即使 plist 已 `UserName=macmini`。
+
+必须给 **两个二进制**手动加完全磁盘访问（系统设置 → 隐私与安全性 → 完全磁盘访问 → 点 `+` → `Cmd+Shift+G` 输路径）：
+
+| 二进制 | 为什么要加 |
+|---|---|
+| `/bin/zsh` | plist shebang 是 zsh，它要 open() `~/Documents/minerU/scripts/local/*.sh` |
+| `/Users/macmini/.local/bin/python3.12` | venv python，启动时要 read `~/Documents/minerU/.venv/pyvenv.cfg` |
+
+**FDA 不会向子进程继承**——zsh 有 FDA 不代表它启动的 python 也有。必须各自分别授权。
+
+**重建 venv 后必须重新加 FDA**：用 `uv` 重装 python，路径还是 `/Users/macmini/.local/bin/python3.12`，但二进制 inode 变了，TCC 看作"另一个二进制"，FDA 失效。届时日志会再报 `PermissionError`，按上面再加一次。
+
+#### 应急回退（LaunchDaemon 出问题时手动起）
+
+如果 launchd 全死、TCC 错乱、想纯手工跑：
+
+```bash
+cd /Users/macmini/Documents/minerU
+nohup bash scripts/local/mineru-api.sh    > /tmp/mineru-api.log 2>&1 & disown
+nohup bash scripts/local/mineru-gradio.sh > /tmp/mineru-gradio.log 2>&1 & disown
+nohup bash scripts/local/reverse-tunnel.sh > /tmp/mineru-tunnel.log 2>&1 & disown
+```
+
+公网入口几十秒后回来。关 shell 就丢，仅作应急用，**不要常驻**。
+
+### 公网入口（服务器 Traefik + basic-auth，2026-06-04 起）
+
+把 Mac mini 的 7860/7861 通过 huoshan-server01 的 Traefik 暴露到公网域名上，加 basic-auth。Mac 不直连公网，所有外部流量必经 Traefik。
+
+**架构链路**：
+
+```
+浏览器 → https://mineru-{ui,api}.alphaxbot.xyz
+       → 火山云 Traefik (TLS 终结 + ratelimit + basic-auth)
+       → dokploy-network overlay → mineru_bridge-{ui,api}  (socat 容器)
+       → 172.18.0.1:7860/7861  (docker_gwbridge host 端)
+       → 反向 SSH 隧道  (autossh，autossh PID 在 Mac /tmp/mineru-tunnel.log)
+       → Mac mini localhost:7860/7861  (mineru-gradio / mineru-api)
+```
+
+**关键端点**：
+
+| 公网 URL | 后端 | basic-auth |
+|---|---|---|
+| `https://mineru-ui.alphaxbot.xyz` | Gradio 7860 | mineru / 仅本地密码管理器 |
+| `https://mineru-api.alphaxbot.xyz/docs` | FastAPI 7861 | 同上 |
+
+**部署文件**（仓库内是模板，服务器上是落地副本）：
+
+| 仓库路径 | 服务器路径 | 用途 |
+|---|---|---|
+| `scripts/server/mineru-bridge-stack.yml` | `/opt/mineru/` | socat swarm stack（dokploy-network overlay） |
+| `scripts/server/mineru-middlewares.yml` | `/etc/dokploy/traefik/dynamic/` | basic-auth + rate-limit（含哈希，权限 600） |
+| `scripts/server/mineru.yml` | `/etc/dokploy/traefik/dynamic/` | 两个子域路由 + LE 证书 |
+| `scripts/server/gen-basic-auth.sh` | `/opt/mineru/` | 生成强密码 + bcrypt + 写 middlewares |
+| `scripts/server/deploy.sh` | — | 一键 scp + stack deploy + 生成 auth |
+
+**凭证铁律**：basic-auth 密码**只在 gen-basic-auth.sh 输出时显示一次**，立刻进密码管理器。`mineru-middlewares.yml` 服务器副本里是 bcrypt 哈希（不可逆），但仓库内是占位符版本，不含真实密码——**永远不要把服务器上那份 commit 进仓库**。重跑 gen-basic-auth.sh 会覆盖哈希，旧密码立即失效。
+
+**basic-auth 升级触发条件**（满足任一即升 Authelia / IP 白名单）：
+- 用户数 > 3（共享密码已不合理）
+- access log 出现明显字典扫描
+- 需要给"非完全信任的人"用（外部协作者、客户 demo）
+
+#### 踩坑（部署时撞了不止一次）
+
+1. **swarm overlay 容器的 host-gateway ≠ docker0**：socat 容器跑在 dokploy-network overlay 上，默认路由走 `docker_gwbridge`（172.18.0.1），不是 `docker0`（172.17.0.1）。Docker `extra_hosts: host-gateway` 别名在 swarm 模式下会错误地解析为 docker0 IP，导致 socat → host 不通。**修复**：mineru-bridge-stack.yml 里 hardcode `TCP:172.18.0.1:7860`，不依赖 host-gateway 别名。
+
+2. **反向 SSH 隧道默认绑 host 127.0.0.1**：Docker 容器从 docker_gwbridge 视角看不到 host loopback。**修复**：服务器 sshd `01-harden.conf` 加 `GatewayPorts clientspecified`（reload 不杀会话），Mac 端 `reverse-tunnel.sh` 改 `-R 172.18.0.1:7860:localhost:7860`。绑 172.18.0.1 仅对 swarm 容器可见，不暴露公网 eth0。
+
+3. **ufw 默认 INPUT DROP 把 docker_gwbridge 入站拦了**：socat 容器到 172.18.0.1:7860 timeout。**修复**：`sudo ufw allow in on docker_gwbridge to any port 7860 proto tcp`（只对这块网卡放行，公网不放）。已加规则 #7 #8 #15 #16。
+
+4. **DNS 加 `*` 通配符记录时，主机记录字段只填一个英文星号**——不要填 `*.alphaxbot.xyz`、不要带空格、不要带点。火山引擎 DNS 控制台填错会"看似保存"但实际 NS 收不到。验证用 `dig +short mineru-ui.alphaxbot.xyz @vip1.volcengine-dns.com`（直接问火山权威 NS）。
+
+#### 故障排查命令
+
+```bash
+# Mac 端
+pgrep -fla "autossh.*172.18.0.1"                           # 反向隧道在不在
+lsof -iTCP:7860 -sTCP:LISTEN                               # gradio 在不在
+tail -f /tmp/mineru-tunnel.log                              # 隧道日志
+
+# 服务器侧
+ssh volcano 'ss -tlnp | grep -E ":(7860|7861)\s"'          # 隧道有没有绑上 172.18.0.1
+ssh volcano 'sudo docker service ls --filter name=mineru_' # socat 桥接服务存活
+ssh volcano 'sudo docker exec dokploy-traefik wget -qS --timeout=5 http://mineru_bridge-ui:7860/ -O /dev/null 2>&1 | head -3'  # Traefik→桥接通
+
+# 外部验证
+curl -I https://mineru-ui.alphaxbot.xyz                                     # 期望 401
+curl -I -u mineru:<密码> https://mineru-ui.alphaxbot.xyz                    # 期望 200
+```
 
 ### 替代 docling-serve 的历史背景
 

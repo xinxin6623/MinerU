@@ -1,0 +1,60 @@
+# Docker Swarm stack：把 Mac mini 反向隧道（服务器 host 127.0.0.1:7860/7861）
+# 桥接进 dokploy-network overlay，让 Traefik 容器能通过 service name 访问到。
+#
+# 为什么需要这层桥：
+#   反向 SSH 隧道绑在 server 的 docker_gwbridge host 端 IP（172.18.0.1），
+#   该 IP 仅对 swarm overlay 容器可达，公网不暴露。
+#   socat 容器加入 dokploy-network 后，Traefik 可以 http://mineru_bridge-ui:7860 引用。
+#
+# 为什么 hardcode 172.18.0.1 而不用 host-gateway 别名：
+#   swarm overlay 容器的 host-gateway 解析为 docker0 IP（172.17.0.1），
+#   但默认路由走 docker_gwbridge（172.18.0.1），两个网桥不互通——别名错误地指向不可达地址。
+#   docker_gwbridge IP 在 swarm 初始化时固定，dokploy 安装后不会变。
+#
+# 部署：
+#   scp 到 /opt/mineru/mineru-bridge-stack.yml
+#   sudo docker stack deploy -c /opt/mineru/mineru-bridge-stack.yml mineru
+#
+# 卸载：sudo docker stack rm mineru
+#
+# 健康检查：
+#   sudo docker service ls | grep mineru
+#   sudo docker service logs -f --tail 50 mineru_bridge-ui
+#   # 在 traefik 容器里：sudo docker exec dokploy-traefik wget -qO- http://mineru_bridge-api:7861/docs
+
+version: '3.8'
+
+services:
+  bridge-ui:
+    image: alpine/socat:latest
+    command: -d TCP-LISTEN:7860,fork,reuseaddr TCP:172.18.0.1:7860
+    networks:
+      - dokploy-network
+    deploy:
+      replicas: 1
+      restart_policy:
+        condition: any
+        delay: 5s
+      resources:
+        limits:
+          memory: 32M
+          cpus: '0.10'
+
+  bridge-api:
+    image: alpine/socat:latest
+    command: -d TCP-LISTEN:7861,fork,reuseaddr TCP:172.18.0.1:7861
+    networks:
+      - dokploy-network
+    deploy:
+      replicas: 1
+      restart_policy:
+        condition: any
+        delay: 5s
+      resources:
+        limits:
+          memory: 32M
+          cpus: '0.10'
+
+networks:
+  dokploy-network:
+    external: true

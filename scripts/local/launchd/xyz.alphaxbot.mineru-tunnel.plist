@@ -1,0 +1,45 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  反向 SSH 隧道 LaunchDaemon（autossh，断了自愈 + 系统级 KeepAlive 双保险）。
+  依赖：~/.ssh/config 里的 huoshan-server01 别名 + ~/.ssh/huoshan-server01.pem 私钥（无 passphrase）。
+  日志：/var/log/mineru-tunnel.{out,err}.log
+-->
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>xyz.alphaxbot.mineru-tunnel</string>
+
+  <key>ProgramArguments</key>
+  <array>
+    <string>/Users/macmini/Documents/minerU/scripts/local/reverse-tunnel.sh</string>
+  </array>
+
+  <key>RunAtLoad</key>
+  <true/>
+  <key>KeepAlive</key>
+  <true/>
+
+  <key>UserName</key>
+  <string>macmini</string>
+  <key>GroupName</key>
+  <string>staff</string>
+
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>HOME</key>
+    <string>/Users/macmini</string>
+    <key>PATH</key>
+    <string>/Users/macmini/.local/bin:/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+  </dict>
+
+  <key>StandardOutPath</key>
+  <string>/var/log/mineru-tunnel.out.log</string>
+  <key>StandardErrorPath</key>
+  <string>/var/log/mineru-tunnel.err.log</string>
+
+  <!-- autossh 断后立刻重连；ThrottleInterval 防止 ssh 一启动就崩造成 launchd 疯转 -->
+  <key>ThrottleInterval</key>
+  <integer>10</integer>
+</dict>
+</plist>

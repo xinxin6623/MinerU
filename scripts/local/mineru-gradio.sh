@@ -10,4 +10,16 @@ export HF_HUB_OFFLINE=1
 export TRANSFORMERS_OFFLINE=1
 export NO_PROXY="localhost,127.0.0.1,::1"
 export no_proxy="localhost,127.0.0.1,::1"
+
+# 等 mineru-api 就绪（vlm-preload 需要几秒到十几秒）。最多等 180s。
+# launchd 并行启动 api / gradio 时避免 gradio 早死 KeepAlive 反复重启。
+echo "waiting for mineru-api on :7861 ..."
+for i in $(seq 1 180); do
+  if curl -sf --max-time 1 http://localhost:7861/docs >/dev/null 2>&1; then
+    echo "mineru-api ready after ${i}s"
+    break
+  fi
+  sleep 1
+done
+
 exec ./.venv/bin/mineru-gradio --server-name 0.0.0.0 --server-port 7860 --api-url http://localhost:7861

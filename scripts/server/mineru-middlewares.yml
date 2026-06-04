@@ -1,0 +1,29 @@
+# Traefik 动态 middleware：MinerU 专用的 basic-auth + rate-limit
+# 部署位置：/etc/dokploy/traefik/dynamic/mineru-middlewares.yml
+# 权限：sudo chmod 600（含哈希后的口令，限 root 可读）
+#
+# users 字段由 scripts/server/gen-basic-auth.sh 写入实际 htpasswd 哈希；
+# 这里的 PLACEHOLDER 仅作占位，**部署前必须由脚本覆盖**，否则任何人都能登录。
+#
+# Traefik file provider 不做变量插值，bcrypt 哈希里的 $ 原样写、无需转义为 $$。
+
+http:
+  middlewares:
+    mineru-auth:
+      basicAuth:
+        # PLACEHOLDER：部署前请运行 gen-basic-auth.sh 覆盖
+        users:
+          - "mineru:$REPLACE_ME_WITH_REAL_HASH"
+        realm: "MinerU"
+        removeHeader: true  # 转发给后端时移除 Authorization 头
+
+    mineru-ratelimit:
+      # 防字典爆破：每个客户端 IP 平均 100 req/min、突发 50。
+      # 正常使用足够（一次解析任务 < 10 个 HTTP 调用），暴力扫描会被截断。
+      rateLimit:
+        average: 100
+        burst: 50
+        period: 1m
+        sourceCriterion:
+          ipStrategy:
+            depth: 1  # 信任最近一跳 X-Forwarded-For（Traefik 在最外层）

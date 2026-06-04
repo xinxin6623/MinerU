@@ -30,6 +30,8 @@ minerU/
 | [`mineru/`](./mineru/) | 主 Python 包：`backend`（解析后端）/ `cli`（命令行入口）/ `data`（数据 IO）/ `model`（模型相关）/ `resources` / `utils` |
 | [`projects/`](./projects/) | 周边子项目（含中英 README，未来可能拆为自带三件套的子项目） |
 | [`scripts/local/`](./scripts/local/) | 本机算力服务启停脚本（`mineru-api.sh` / `mineru-gradio.sh` / `reverse-tunnel.sh`），详见 AGENTS "本机算力服务部署"段 |
+| [`scripts/local/launchd/`](./scripts/local/launchd/) | LaunchDaemon plist 模板 + install/uninstall 脚本，详见 AGENTS "持久化（LaunchDaemon + TCC 必备）"段 |
+| [`scripts/server/`](./scripts/server/) | 服务器侧 Traefik 路由 + socat 桥接 stack + basic-auth 生成脚本，详见 AGENTS "公网入口（服务器 Traefik + basic-auth）"段 |
 | [`demo/`](./demo/) | `demo.py` + 样本 PDF / Office 文档，跑通效果用 |
 | [`docker/`](./docker/) | `compose.yaml` + `china/` `global/` 两套镜像构建 |
 | [`docs/`](./docs/) | mkdocs 文档源：`en/` `zh/` `assets/` `images/` `chemical_knowledge_introduction/` |
@@ -45,8 +47,10 @@ Mac mini 当算力机，本机 / 局域网 / 火山云服务器（经反向 SSH 
 | Gradio Web UI | `0.0.0.0:7860` | ✅ 跑着（前台 nohup） |
 | FastAPI / Swagger `/docs` | `0.0.0.0:7861` | ✅ 跑着（前台 nohup） |
 | LAN 直连 `192.168.1.89:7860/7861` | — | ✅ 已通（防火墙放行 venv python） |
-| 反向 SSH 隧道到 huoshan-server01 | `localhost:7860/7861` | ✅ 已通 |
-| launchd 持久化 | — | ⏳ 未做，Mac 重启会丢 |
+| 反向 SSH 隧道到 huoshan-server01 | `172.18.0.1:7860/7861`（docker_gwbridge） | ✅ 已通 |
+| 公网 Gradio UI | `https://mineru-ui.alphaxbot.xyz` | ✅ 已通（basic-auth 拦截） |
+| 公网 FastAPI / Swagger | `https://mineru-api.alphaxbot.xyz/docs` | ✅ 已通（basic-auth 拦截） |
+| launchd 持久化 | `system/xyz.alphaxbot.mineru-{api,gradio,tunnel}` | ✅ LaunchDaemon 装好，Mac 重启自动起；需给 `/bin/zsh` + `~/.local/bin/python3.12` 加 FDA |
 
 详见 AGENTS.md "本机算力服务部署"段。
 
