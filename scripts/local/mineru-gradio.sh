@@ -10,6 +10,8 @@ export HF_HUB_OFFLINE=1
 export TRANSFORMERS_OFFLINE=1
 export NO_PROXY="localhost,127.0.0.1,::1"
 export no_proxy="localhost,127.0.0.1,::1"
+# 同 mineru-api.sh：mps 显存探测缺失的兜底（gradio 若自拉 api 时也生效）
+export MINERU_VIRTUAL_VRAM_SIZE=16
 
 # 等 mineru-api 就绪（vlm-preload 需要几秒到十几秒）。最多等 180s。
 # launchd 并行启动 api / gradio 时避免 gradio 早死 KeepAlive 反复重启。

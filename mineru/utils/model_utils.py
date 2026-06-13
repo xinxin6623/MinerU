@@ -248,6 +248,13 @@ def get_vram(device) -> int:
             total_memory = round(torch.mlu.get_device_properties(device).total_memory / (1024 ** 3))  # 转为 GB
     elif str(device).startswith("sdaa"):
         if torch.sdaa.is_available():
-            total_memory = round(torch.sdaa.get_device_properties(device).total_memory / (1024 ** 3))  # 转为 GB          
+            total_memory = round(torch.sdaa.get_device_properties(device).total_memory / (1024 ** 3))  # 转为 GB
+    elif str(device).startswith("mps"):
+        if torch.backends.mps.is_available():
+            try:
+                # Apple Silicon 统一内存：用 Metal 驱动报告的工作集上限（约 75% RAM），而非全量 RAM
+                total_memory = round(torch.mps.recommended_max_memory() / (1024 ** 3))  # 转为 GB
+            except AttributeError:
+                pass  # 旧版 torch 无此 API，维持兜底值
 
     return total_memory

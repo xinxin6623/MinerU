@@ -18,7 +18,7 @@ MinerU——实用的文档解析工具：把 PDF / 图片 / DOCX / PPTX / XLSX 
 - **不要主动删除文件**：废弃 / 旧版本 / 半成品请移动到 `archive/` 或 `不加载/` 这类约定目录，不要 `rm`。
 - **不要重命名公共接口、路由、对外 API 字段**：除非明确授权，这些是契约。
 - **改动前确认是否有依赖你正在改的代码的其他模块**：先 `grep` 引用再下手。
-- **这是上游开源项目的本地副本**：除非要发 PR 回上游或在做本地实验，避免直接改 `mineru/` 内核代码。优先在 `projects/` 或新建外层目录做集成。
+- **本仓库按"本地 fork"对待（2026-06-13 起，项目所有者指令，替代旧的"不改内核"规则）**：`mineru/` 内核**可以直接改**。优先级：本机跑通 > 发挥 M4 硬件性能 > 与上游兼容。不考虑发 PR 回上游、不为上游同步留余地（将来若要同步，rebase 时再处理冲突）。内核改动必须经 git commit 留痕（推自己的仓库），不要留无版本管理的散改。
 
 ## 本机运行约定（M4 / macOS / 国内网络）
 
@@ -39,19 +39,29 @@ MinerU——实用的文档解析工具：把 PDF / 图片 / DOCX / PPTX / XLSX 
 
 | 后端 | 引擎 | 速度 | 现状 |
 |---|---|---|---|
-| `pipeline` | PaddleOCR + 公式/表/Layout 模型 | ~10 页/分钟 | ✅ 稳定可用 |
-| `vlm-auto-engine` | **mlx-engine**（M4 GPU/ANE，纯 VLM） | ~6.5 秒/页（hybrid 一致） | ✅ 推荐。MinerU2.5-Pro-1.2B |
-| `hybrid-auto-engine` | mlx VLM + pipeline layout | — | ❌ **当前坏的**，见下面"transformers 5 兼容陷阱" |
+| `vlm-auto-engine` | **mlx-engine**（M4 GPU/ANE，纯 VLM） | ~6.5 秒/页 | ✅ **唯一可用，主后端**。MinerU2.5-Pro-1.2B |
+| `pipeline` | PaddleOCR + 公式/表/Layout 模型 | — | ❌ transformers 5 下两处断（MFR import + layout v2），**已放弃修复** |
+| `hybrid-auto-engine` | mlx VLM + pipeline layout | — | ❌ 同上，layout v2 断，**已放弃修复** |
 
-### transformers 5 兼容陷阱（重要）
+### transformers 5 兼容陷阱（重要，2026-06-13 更新：pipeline/hybrid 判死刑）
 
-**症状**：hybrid 后端报 `'PPDocLayoutV2Config' object has no attribute 'reading_order_config'`。
+**症状**：① hybrid / pipeline 报 `'PPDocLayoutV2Config' object has no attribute 'reading_order_config'`（layout v2 配置类在 transformers 5 下 sub_configs 初始化顺序不兼容）；② pipeline 公式模型 unimernet 报 `ImportError: cannot import name 'find_pruneable_heads_and_indices'`（transformers 5 移除了该函数，服务日志有实锤 traceback）。
 
-**根因**：`pyproject.toml` 原本锁 `transformers>=4.57.3,<5.0.0`，但 `mlx-vlm>=0.3.3` 强制要 `transformers>=5`，装 `[mlx]` extra 时 uv 会自动把 transformers 升到 5.9。MinerU pipeline 后端的 `PPDocLayoutV2Config` 类还在用 transformers 4 的 attribute API。
+**根因**：`pyproject.toml` 原本锁 `transformers>=4.57.3,<5.0.0`，但 `mlx-vlm>=0.3.3` 强制要 `transformers>=5`，装 `[mlx]` extra 时 uv 自动把 transformers 升到 5.9。pipeline 的 MFR 和 layout v2 都用 transformers 4 的 API。注意 pipeline 的 layout 也走 `pp_doclayout_v2`（`model_init.py`），不存在"pipeline 用旧版 layout 所以没事"——早期"pipeline 实测可用"的记录是 transformers 4 时代的，已失效。
 
-**绕开**：直接用 `vlm-auto-engine`（纯 VLM 走 mlx，不碰那段 layout 代码），不要用 `hybrid-auto-engine`。`pipeline` 后端实测仍可用，因为它不走那个 layout v2 配置（用的是旧版 layout）。
+**决策（2026-06-13，项目所有者拍板）**：**放弃修复 pipeline / hybrid**（含 reading_order_config 路径）。主后端 = `vlm-auto-engine`（mlx，不碰任何断点代码，质量和速度都不差于 pipeline）。不降级 transformers（mlx-vlm 装不上）、不找旧 mlx-vlm（不支持 MinerU2.5 模型）、不另建 transformers<5 的 venv（维护成本不值）。
 
-**别尝试的修复**：把 transformers 降回 4.57 → mlx-vlm 立刻装不上；找旧 mlx-vlm → 不支持 MinerU2.5 模型。这是上游冲突，等官方修。
+### get_vram() 不认 MPS → batch_ratio 永远是 1（重要，2026-06-13 发现）
+
+**症状**：pipeline / hybrid 后端在 Apple Silicon 上"感觉不走 GPU"，速度上不去，活动监视器里 CPU 忙 GPU 闲。日志里可见 `GPU Memory: 1 GB, Batch Ratio: 1`。
+
+**根因**：`mineru/utils/model_utils.py::get_vram()` 写了 cuda/npu/gcu/musa/mlu/sdaa 六种设备分支，**唯独漏了 mps**，探测不到落兜底 1GB。32GB 的 M4 被当 1GB 机器，`pipeline_analyze.py` / `hybrid_analyze.py` 里 batch_ratio 落到最小档 1（MFR 批量 16、OCR det 批量 8，本应是 128 / 64）。次因：MPS 不支持的算子静默回落 CPU，所以 CPU 显得忙。
+
+**修复（2026-06-13，内核直改）**：`mineru/utils/model_utils.py::get_vram()` 已加 mps 分支，用 `torch.mps.recommended_max_memory()`（Metal 驱动报告的工作集上限，约 75% RAM，32GB M4 ≈ 21-24GB → batch_ratio=8）。`MINERU_VIRTUAL_VRAM_SIZE` 环境变量仍是第一优先级，可显式覆盖（`scripts/local/mineru-api.sh` / `mineru-gradio.sh` 里固化了 16，效果同自动探测档位）。注：batch_ratio 只影响 pipeline/hybrid，这两个后端已放弃，此修复属于"顺手修对 + 防将来"。
+
+### Mac 上 API 并发数可调（2026-06-13，内核直改）
+
+`mineru/cli/fast_api.py` 原本在 Mac 上硬编码并发=1。已改为默认仍 1、但尊重 `MINERU_API_MAX_CONCURRENT_REQUESTS` 环境变量。mlx predictor 自带串行执行锁（`vlm_analyze.py::_maybe_enable_serial_execution`），GPU 推理永远单路；调高并发的收益是多请求的 CPU 段（PDF 渲染 / 后处理）与 GPU 推理重叠，多文档吞吐场景可试 2-3，单文档无收益。代价是峰值内存增加，调高前看内存余量。
 
 ### 引擎自动选择逻辑
 

@@ -221,7 +221,10 @@ def create_app():
     global _request_semaphore, _configured_max_concurrent_requests
 
     if is_mac_environment():
-        max_concurrent_requests = 1
+        # mlx predictor 有串行执行锁，GPU 推理始终单路；放开并发只是让多请求的
+        # CPU 段（PDF 渲染 / 后处理）与推理重叠。默认仍为 1，可用
+        # MINERU_API_MAX_CONCURRENT_REQUESTS 显式调高。
+        max_concurrent_requests = read_max_concurrent_requests(default=1)
     else:
         max_concurrent_requests = read_max_concurrent_requests(
             default=DEFAULT_MAX_CONCURRENT_REQUESTS
