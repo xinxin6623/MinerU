@@ -10,6 +10,9 @@ export HF_HUB_OFFLINE=1
 export TRANSFORMERS_OFFLINE=1
 export NO_PROXY="localhost,127.0.0.1,::1"
 export no_proxy="localhost,127.0.0.1,::1"
+# 本地改动（2026-06-13）：让 UI 把纯文本 PDF 自动分流到 pipeline 服务（7862）提速 ~6×。
+# 设了此变量 gradio_app._maybe_route_to_pipeline 才激活；不设则全走 vlm（安全降级）。
+export MINERU_PIPELINE_API_URL="http://localhost:7862"
 
 # 等 mineru-api 就绪（vlm-preload 需要几秒到十几秒）。最多等 180s。
 # launchd 并行启动 api / gradio 时避免 gradio 早死 KeepAlive 反复重启。

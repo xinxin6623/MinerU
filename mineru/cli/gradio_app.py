@@ -225,9 +225,7 @@ STATUS_PROCESSING_ON_SERVER = "Processing on server"
 STATUS_QUEUED_LOCALLY_PREFIX = "Queued locally:"
 
 BACKEND_CHOICE_DEFINITIONS = [
-    "pipeline",
     "vlm-auto-engine",
-    "hybrid-auto-engine",
 ]
 HTTP_CLIENT_BACKEND_CHOICE_DEFINITIONS = [
     "vlm-http-client",
@@ -954,6 +952,35 @@ def maybe_generate_local_preview(extract_root, file_name, file_suffix, backend, 
     return resolve_preview_pdf_path(parse_dir, file_name)
 
 
+# ──────────────────────────────────────────────────────────────────────────
+# 本地改动（非上游，2026-06-13）：UI 按文件类型把任务分流到 pipeline 服务提速。
+#   纯文本 PDF（classify=='txt'）→ pipeline 服务（默认 7862，~6× 提速）；
+#   图文混排/扫描（'ocr'）/非PDF → 维持原 vlm 服务，保住插图信息。
+#   只在用户选 vlm-auto-engine 时介入（不覆盖用户显式的 pipeline/http-client 选择）。
+#   pipeline 服务地址用环境变量 MINERU_PIPELINE_API_URL 可覆盖，未设则不分流（安全降级）。
+#   ⚠️ 这段动了上游 gradio_app，升级 MinerU 时可能被覆盖，需重新打。详见 AGENTS.md「双服务架构」。
+def _maybe_route_to_pipeline(file_path, backend, api_url):
+    """返回 (effective_backend, effective_api_url)。不满足分流条件则原样返回。"""
+    pipeline_api_url = os.getenv("MINERU_PIPELINE_API_URL")
+    if not pipeline_api_url:
+        return backend, api_url  # 未配 pipeline 服务地址 → 不分流
+    if backend != "vlm-auto-engine":
+        return backend, api_url  # 只对默认 vlm 选择介入
+    if Path(file_path).suffix.lower() != ".pdf":
+        return backend, api_url  # 非 PDF（图片/office）维持 vlm
+    try:
+        from mineru.utils.pdf_classify import classify
+        with open(file_path, "rb") as f:
+            kind = classify(f.read())
+    except Exception as e:
+        logger.warning(f"[pipeline-route] classify 失败，维持 vlm：{e}")
+        return backend, api_url
+    if kind == "txt":
+        logger.info(f"[pipeline-route] 纯文本 PDF → pipeline 服务 {pipeline_api_url}")
+        return "pipeline", pipeline_api_url
+    return backend, api_url  # 'ocr' 等 → 维持 vlm
+
+
 async def _run_to_markdown_job(
     file_path,
     end_pages=10,
@@ -978,6 +1005,8 @@ async def _run_to_markdown_job(
     normalized_language = normalize_language(language)
     file_path = str(file_path)
     file_suffix = Path(file_path).suffix.lower().lstrip('.')
+    # 本地改动：纯文本 PDF 分流到 pipeline 服务提速（见上方 _maybe_route_to_pipeline）
+    backend, api_url = _maybe_route_to_pipeline(file_path, backend, api_url)
     use_client_side_output_generation = should_use_client_side_output_generation(
         client_side_output_generation
     )
@@ -1776,7 +1805,7 @@ def main(ctx,
                     file_types=suffixes,
                     elem_classes=["mineru-upload-file"],
                 )
-                preferred_option = "hybrid-auto-engine"
+                preferred_option = "vlm-auto-engine"
                 backend = gr.Dropdown(
                     build_backend_choices(http_client_enable, i18n),
                     label=i18n("backend"),

@@ -18,6 +18,7 @@ fi
 cd "$(dirname "$0")"
 DAEMONS=(
   xyz.alphaxbot.mineru-api
+  xyz.alphaxbot.mineru-api-pipeline
   xyz.alphaxbot.mineru-gradio
   xyz.alphaxbot.mineru-tunnel
 )
@@ -35,7 +36,8 @@ for d in "${DAEMONS[@]}"; do
 done
 
 echo "[3/4] 创建日志文件并赋权 macmini..."
-touch /var/log/mineru-api.{out,err}.log /var/log/mineru-gradio.{out,err}.log /var/log/mineru-tunnel.{out,err}.log
+touch /var/log/mineru-api.{out,err}.log /var/log/mineru-api-pipeline.{out,err}.log \
+      /var/log/mineru-gradio.{out,err}.log /var/log/mineru-tunnel.{out,err}.log
 chown macmini:staff /var/log/mineru-*.log
 
 echo "[4/4] launchctl bootstrap..."
