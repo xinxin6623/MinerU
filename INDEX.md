@@ -4,6 +4,37 @@ MinerU——实用的文档解析工具：把 PDF / 图片 / DOCX / PPTX / XLSX 
 
 > 🤖 Agent 上手先读 [`AGENTS.md`](./AGENTS.md) 的操作守则；改动后记得追加 [`CHANGELOG.md`](./CHANGELOG.md)（强标签格式见文件顶部）。
 
+## 项目简介
+
+上游 MinerU 的本机副本，部署为 Mac mini 算力服务：本机/局域网/服务器三方共享，把
+PDF/图片/Office 转 Markdown+JSON。双服务架构——vlm（7861，mlx GPU，高精度）+ pipeline
+（7862，纯文本快 6×），消费端按文件类型自动分流。
+
+## 架构图
+
+```mermaid
+flowchart TD
+  U[用户 UI/CLI/apdd] --> R{文件类型判别}
+  R -->|纯文本 PDF| P[pipeline 服务 7862]
+  R -->|图文混排/扫描/非PDF| V[vlm 服务 7861]
+  P --> O[Markdown + JSON]
+  V --> O
+  V -.->|mlx Metal GPU| G[Apple Silicon]
+```
+
+## 当前接力点 (Handoff)
+
+### 概述
+**装 persistence：sudo launchd/install.sh + .venv-pipeline python 加 TCC 完全磁盘访问**
+**确认并处理 gradio_app.py 上轮遗留的未提交改动**
+**commit 本会话改动（gradio UI 分流 + mineru-gradio.sh），当前在 worktree epic-haslett-436980**
+
+### 明细
+双服务分流已落地并端到端验证（UI 提交纯文本 PDF→7862→8s 完成，vs vlm 320s）。
+vlm 无 GPU 提速旋钮（进程级串行锁），提速唯一杠杆=纯文本走 pipeline。
+判别用上游 `mineru/utils/pdf_classify.py::classify()`。三服务当前临时 nohup，重启会丢。
+详见 obwiki `sources/2026-06-14-mineru-gpu-perf-dual-service-routing.md`。
+
 ## 项目结构
 
 ```

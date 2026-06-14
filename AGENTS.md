@@ -1,3 +1,8 @@
+---
+status: active
+desc: Mac mini 文档解析算力服务（PDF/Office→MD），双服务架构
+---
+
 # minerU · Agent 操作守则
 
 > **上来先读这份，再看 [`INDEX.md`](./INDEX.md) 找模块和导航。**
